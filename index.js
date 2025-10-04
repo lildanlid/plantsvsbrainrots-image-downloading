@@ -9,23 +9,31 @@ const sharp = require('sharp');
 const PORT = process.env.PORT || 3000;
 const app = express();
 
+// Folder to store images
 const imageFolder = path.join(__dirname, 'i', 'images');
 if (!fs.existsSync(imageFolder)) fs.mkdirSync(imageFolder, { recursive: true });
 
+// Wiki pages to scrape
 const urls = [
   'https://plantsvsbrainrotswikia.com/brainrots',
   'https://plantsvsbrainrotswikia.com/gear',
   'https://plantsvsbrainrotswikia.com/plants'
 ];
 
+// Normalize filenames
 function normalizeFilename(url) {
   let name = path.basename(url.split('?')[0]).toLowerCase();
+  // Remove unwanted words
   name = name.replace(/brainrots|gear|plants|seed/gi, '');
   name = name.replace(/-/g, '_');
+  // Remove trailing underscores
+  name = name.replace(/_+$/, '');
+  // Ensure .png
   if (!name.endsWith('.png')) name = name.replace(/\.[a-z]+$/, '') + '.png';
   return name;
 }
 
+// Fetch HTML
 async function fetchPage(url) {
   try {
     const { data } = await axios.get(url);
@@ -36,6 +44,7 @@ async function fetchPage(url) {
   }
 }
 
+// Extract image URLs
 function extractImages(html, baseUrl) {
   const $ = cheerio.load(html);
   const images = [];
@@ -48,6 +57,7 @@ function extractImages(html, baseUrl) {
   return images;
 }
 
+// Download and convert image to .png
 async function downloadImage(url) {
   const filename = normalizeFilename(url);
   const filepath = path.join(imageFolder, filename);
@@ -56,6 +66,7 @@ async function downloadImage(url) {
 
   try {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
+    // Convert to PNG
     await sharp(response.data).png().toFile(filepath);
     console.log(`Downloaded and converted: ${filename}`);
     return true;
@@ -65,6 +76,7 @@ async function downloadImage(url) {
   }
 }
 
+// Scrape all URLs
 async function scrapeAll() {
   console.log('Scraping wiki pages...');
   let newImages = 0;
@@ -79,12 +91,15 @@ async function scrapeAll() {
       if (await downloadImage(img)) newImages++;
     }
   }
-  
+
+  // Direct image link
   const directImage = 'https://plantsvsbrainrotswikia.com/images/gear/water-bucket.webp';
   if (await downloadImage(directImage)) newImages++;
 
   console.log(`Scrape complete. ${newImages} new images downloaded.`);
 }
+
+// Generate home page
 function generateHTML() {
   const files = fs.readdirSync(imageFolder);
   const count = files.length;
@@ -110,8 +125,10 @@ ${files.map(f => `<img src="/i/images/${f}" alt="${f}">`).join('\n')}
   console.log('Updated index.html');
 }
 
+// Serve static images
 app.use('/i/images', express.static(imageFolder));
 
+// Serve home page
 app.get('/', (req, res) => {
   const html = fs.existsSync(path.join(__dirname, 'index.html'))
     ? fs.readFileSync(path.join(__dirname, 'index.html'), 'utf-8')
@@ -119,14 +136,17 @@ app.get('/', (req, res) => {
   res.send(html);
 });
 
+// Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
 
+// Initial scrape
 (async () => {
   await scrapeAll();
   generateHTML();
 
+  // Re-scrape every 5 minutes
   setInterval(async () => {
     await scrapeAll();
     generateHTML();
