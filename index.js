@@ -23,14 +23,41 @@ const urls = [
 // Normalize filenames
 function normalizeFilename(url) {
   let name = path.basename(url.split('?')[0]).toLowerCase();
-  // Remove unwanted words
-  name = name.replace(/brainrots|gear|plants|seed/gi, '');
+
+  // Remove unwanted words anywhere in the filename
+  name = name.replace(/brainrots|brainrot|gear|plants|seed/gi, '');
+
+  // Replace hyphens with underscores
   name = name.replace(/-/g, '_');
-  // Remove trailing underscores
-  name = name.replace(/_+$/, '');
-  // Ensure .png
-  if (!name.endsWith('.png')) name = name.replace(/\.[a-z]+$/, '') + '.png';
+
+  // Remove leading/trailing underscores
+  name = name.replace(/^_+|_+$/g, '');
+
+  // Replace multiple underscores with a single underscore
+  name = name.replace(/_+/g, '_');
+
+  // Ensure it ends with .png
+  name = name.replace(/\.[a-z]+$/, '') + '.png';
+
   return name;
+}
+
+// Clean existing images with trailing underscores
+function cleanExistingImages() {
+  if (!fs.existsSync(imageFolder)) return;
+  const files = fs.readdirSync(imageFolder);
+
+  for (const file of files) {
+    const ext = path.extname(file).toLowerCase();
+    let name = path.basename(file, ext);
+
+    // Remove trailing/leading underscores, collapse multiple
+    let newName = name.replace(/^_+|_+$/g, '').replace(/_+/g, '_') + '.png';
+    if (newName !== file) {
+      fs.renameSync(path.join(imageFolder, file), path.join(imageFolder, newName));
+      console.log(`Renamed: ${file} → ${newName}`);
+    }
+  }
 }
 
 // Fetch HTML
@@ -66,7 +93,6 @@ async function downloadImage(url) {
 
   try {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
-    // Convert to PNG
     await sharp(response.data).png().toFile(filepath);
     console.log(`Downloaded and converted: ${filename}`);
     return true;
@@ -96,12 +122,15 @@ async function scrapeAll() {
   const directImage = 'https://plantsvsbrainrotswikia.com/images/gear/water-bucket.webp';
   if (await downloadImage(directImage)) newImages++;
 
+  // Clean existing filenames
+  cleanExistingImages();
+
   console.log(`Scrape complete. ${newImages} new images downloaded.`);
 }
 
 // Generate home page
 function generateHTML() {
-  const files = fs.readdirSync(imageFolder);
+  const files = fs.existsSync(imageFolder) ? fs.readdirSync(imageFolder) : [];
   const count = files.length;
 
   let html = `<!DOCTYPE html>
@@ -141,12 +170,10 @@ app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
 
-// Initial scrape
+// Initial scrape and repeat every 5 minutes
 (async () => {
   await scrapeAll();
   generateHTML();
-
-  // Re-scrape every 5 minutes
   setInterval(async () => {
     await scrapeAll();
     generateHTML();
